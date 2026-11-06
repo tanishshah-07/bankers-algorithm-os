@@ -1,0 +1,17 @@
+# Compiled executables
+*.out
+*.o
+/test_safe
+/test_request
+/test_unsafe
+
+# Debug files
+*.gdb
+
+# Temporary files
+*.tmp
+*.log
+
+# Editor files
+.vscode/
+*.swp
