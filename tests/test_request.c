@@ -1,8 +1,9 @@
 
 #include <stdio.h>
+
 #include "../src/banker.h"
 
-int main()
+int main(void)
 {
     Banker banker = {
         .available = {3, 3, 2},
@@ -24,45 +25,85 @@ int main()
         }
     };
 
+    int request[NUM_RESOURCES] = {1, 0, 2};
+
+    int release[NUM_RESOURCES] = {1, 0, 2};
+
+    if (bankerInit(&banker) != 0)
+    {
+        printf("Banker initialization failed.\n");
+        return 1;
+    }
+
     calculateNeed(&banker);
 
-    int request[] = {1, 0, 2};
+    printf("====================================\n");
+    printf(" RESOURCE REQUEST AND RELEASE TEST\n");
+    printf("====================================\n");
 
-    printf("\nInitial Available: ");
-    for (int j = 0; j < NUM_RESOURCES; j++)
-        printf("%d ", banker.available[j]);
+    printf("\nInitial Available: [3, 3, 2]\n");
 
-    printf("\n\nTest 1: C1 requests {1, 0, 2}\n");
+    printf("Customer C1 requesting: [1, 0, 2]\n");
 
     int result = requestResources(&banker, 1, request);
 
     if (result == REQUEST_GRANTED)
+    {
         printf("Request GRANTED.\n");
-    else if (result == REQUEST_UNSAFE)
-        printf("Request DENIED: Unsafe state.\n");
-    else if (result == REQUEST_UNAVAILABLE)
-        printf("Request DENIED: Resources unavailable.\n");
+    }
     else
-        printf("Request DENIED: Invalid request.\n");
+    {
+        printf("Request failed with status: %d\n", result);
+        bankerDestroy(&banker);
+        return 1;
+    }
 
     printf("Available after request: ");
+
     for (int j = 0; j < NUM_RESOURCES; j++)
+    {
         printf("%d ", banker.available[j]);
-
-    int release[] = {1, 0, 2};
-
-    printf("\n\nTest 2: C1 releases {1, 0, 2}\n");
-
-    if (releaseResources(&banker, 1, release))
-        printf("Resources released successfully.\n");
-    else
-        printf("Invalid release request.\n");
-
-    printf("Available after release: ");
-    for (int j = 0; j < NUM_RESOURCES; j++)
-        printf("%d ", banker.available[j]);
+    }
 
     printf("\n");
 
+    printf("\nCustomer C1 releasing: [1, 0, 2]\n");
+
+    if (releaseResources(&banker, 1, release))
+    {
+        printf("Resources released successfully.\n");
+    }
+    else
+    {
+        printf("Resource release failed.\n");
+        bankerDestroy(&banker);
+        return 1;
+    }
+
+    printf("Available after release: ");
+
+    for (int j = 0; j < NUM_RESOURCES; j++)
+    {
+        printf("%d ", banker.available[j]);
+    }
+
+    printf("\n");
+
+    if (banker.available[0] == 3 &&
+        banker.available[1] == 3 &&
+        banker.available[2] == 2)
+    {
+        printf("\nResource request and release test PASSED.\n");
+    }
+    else
+    {
+        printf("\nResource request and release test FAILED.\n");
+        bankerDestroy(&banker);
+        return 1;
+    }
+
+    bankerDestroy(&banker);
+
     return 0;
 }
+

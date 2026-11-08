@@ -1,8 +1,9 @@
 
 #include <stdio.h>
+
 #include "../src/banker.h"
 
-int main()
+int main(void)
 {
     Banker banker = {
         .available = {3, 3, 2},
@@ -26,10 +27,18 @@ int main()
 
     int safeSequence[NUM_CUSTOMERS];
 
-    // Calculate the Need matrix
+    if (bankerInit(&banker) != 0)
+    {
+        printf("Banker initialization failed.\n");
+        return 1;
+    }
+
     calculateNeed(&banker);
 
-    // Display the Need matrix
+    printf("====================================\n");
+    printf(" BANKER'S ALGORITHM - SAFETY TEST\n");
+    printf("====================================\n");
+
     printf("\nNeed Matrix:\n");
 
     for (int i = 0; i < NUM_CUSTOMERS; i++)
@@ -44,11 +53,9 @@ int main()
         printf("\n");
     }
 
-    // Check whether the system is safe
     if (isSafeState(&banker, safeSequence))
     {
         printf("\nSystem is in a SAFE state.\n");
-
         printf("Safe Sequence: ");
 
         for (int i = 0; i < NUM_CUSTOMERS; i++)
@@ -56,7 +63,9 @@ int main()
             printf("C%d", safeSequence[i]);
 
             if (i < NUM_CUSTOMERS - 1)
+            {
                 printf(" -> ");
+            }
         }
 
         printf("\n");
@@ -64,7 +73,11 @@ int main()
     else
     {
         printf("\nSystem is in an UNSAFE state.\n");
+        bankerDestroy(&banker);
+        return 1;
     }
+
+    bankerDestroy(&banker);
 
     return 0;
 }

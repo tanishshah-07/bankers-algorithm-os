@@ -16,3 +16,4 @@
 .vscode/
 *.swp
 /banker
+/test_wait

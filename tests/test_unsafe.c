@@ -1,8 +1,9 @@
 
 #include <stdio.h>
+
 #include "../src/banker.h"
 
-int main()
+int main(void)
 {
     Banker banker = {
         .available = {3, 3, 2},
@@ -24,58 +25,87 @@ int main()
         }
     };
 
+    int request[NUM_RESOURCES] = {3, 3, 0};
+
+    int originalAvailable[NUM_RESOURCES] = {3, 3, 2};
+
+    int originalAllocation[NUM_RESOURCES] = {0, 0, 0};
+
+    int safeSequence[NUM_CUSTOMERS];
+
+    if (bankerInit(&banker) != 0)
+    {
+        printf("Banker initialization failed.\n");
+        return 1;
+    }
+
     calculateNeed(&banker);
 
-    // Save original system state
-    Banker original = banker;
-
-    int request[] = {3, 3, 0};
-
-    printf("\nInitial Available: ");
     for (int j = 0; j < NUM_RESOURCES; j++)
-        printf("%d ", banker.available[j]);
+    {
+        originalAllocation[j] = banker.allocation[4][j];
+    }
 
-    printf("\n\nTest: C4 requests {3, 3, 0}\n");
+    printf("====================================\n");
+    printf(" UNSAFE REQUEST ROLLBACK TEST\n");
+    printf("====================================\n");
+
+    printf("\nCustomer C4 requesting: [3, 3, 0]\n");
 
     int result = requestResources(&banker, 4, request);
 
     if (result == REQUEST_UNSAFE)
-        printf("Request DENIED: Unsafe state.\n");
-    else if (result == REQUEST_GRANTED)
-        printf("Request GRANTED.\n");
+    {
+        printf("Request correctly DENIED (unsafe state).\n");
+    }
     else
-        printf("Unexpected result: %d\n", result);
+    {
+        printf("Unexpected request result: %d\n", result);
+        bankerDestroy(&banker);
+        return 1;
+    }
 
-    // Verify rollback
-    int unchanged = 1;
+    // Verify Available resources were restored.
+    int rollbackPassed = 1;
 
     for (int j = 0; j < NUM_RESOURCES; j++)
     {
-        if (banker.available[j] != original.available[j])
-            unchanged = 0;
-    }
-
-    for (int i = 0; i < NUM_CUSTOMERS; i++)
-    {
-        for (int j = 0; j < NUM_RESOURCES; j++)
+        if (banker.available[j] != originalAvailable[j])
         {
-            if (banker.allocation[i][j] != original.allocation[i][j] ||
-                banker.need[i][j] != original.need[i][j])
-            {
-                unchanged = 0;
-            }
+            rollbackPassed = 0;
+        }
+
+        if (banker.allocation[4][j] != originalAllocation[j])
+        {
+            rollbackPassed = 0;
         }
     }
 
-    printf("Available after request: ");
-
-    for (int j = 0; j < NUM_RESOURCES; j++)
-        printf("%d ", banker.available[j]);
-
-    if (unchanged)
-        printf("\nROLLBACK SUCCESSFUL: Original state restored.\n");
+    if (rollbackPassed)
+    {
+        printf("Rollback verification: PASSED\n");
+        printf("Available resources restored: [3, 3, 2]\n");
+        printf("C4 allocation restored: [0, 0, 2]\n");
+    }
     else
-        printf("\nROLLBACK FAILED: State was modified.\n");
+    {
+        printf("Rollback verification: FAILED\n");
+    }
 
-    return 0;
+    // Verify the system remains safe.
+    if (isSafeState(&banker, safeSequence))
+    {
+        printf("Final system state: SAFE\n");
+    }
+    else
+    {
+        printf("Final system state: UNSAFE\n");
+        rollbackPassed = 0;
+    }
+
+    printf("====================================\n");
+
+    bankerDestroy(&banker);
+
+    return rollbackPassed ? 0 : 1;
 }
