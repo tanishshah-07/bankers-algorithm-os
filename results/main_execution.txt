@@ -1,0 +1,54 @@
+====================================
+ BANKER'S ALGORITHM - MULTITHREADING
+====================================
+
+Initial system state: SAFE
+Safe Sequence: C1 -> C3 -> C4 -> C0 -> C2
+
+Creating customer threads...
+
+Customer C0 thread started.
+Customer C0 requesting: [0, 1, 0]
+Customer C0: Request GRANTED.
+Customer C0 is executing...
+
+Customer C1 thread started.
+Customer C1 requesting: [1, 0, 0]
+Customer C1: Request GRANTED.
+Customer C1 is executing...
+
+Customer C3 thread started.
+Customer C3 requesting: [0, 1, 0]
+Customer C3: Request GRANTED.
+Customer C3 is executing...
+
+Customer C2 thread started.
+Customer C2 requesting: [1, 0, 0]
+Customer C2: Request GRANTED.
+Customer C2 is executing...
+
+Customer C4 thread started.
+Customer C4 requesting: [1, 0, 0]
+Customer C4: Request GRANTED.
+Customer C4 is executing...
+Customer C0: Resources released successfully.
+Customer C0 thread finished.
+Customer C3: Resources released successfully.
+Customer C3 thread finished.
+Customer C1: Resources released successfully.
+Customer C1 thread finished.
+Customer C4: Resources released successfully.
+Customer C4 thread finished.
+Customer C2: Resources released successfully.
+Customer C2 thread finished.
+
+All customer threads completed.
+
+====================================
+ FINAL RESOURCE VERIFICATION
+====================================
+Final Available Resources: 3 3 2 
+Resource accounting: PASSED
+All temporary allocations were released.
+Final system state: SAFE
+====================================

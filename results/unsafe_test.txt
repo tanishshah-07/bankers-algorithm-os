@@ -1,0 +1,11 @@
+====================================
+ UNSAFE REQUEST ROLLBACK TEST
+====================================
+
+Customer C4 requesting: [3, 3, 0]
+Request correctly DENIED (unsafe state).
+Rollback verification: PASSED
+Available resources restored: [3, 3, 2]
+C4 allocation restored: [0, 0, 2]
+Final system state: SAFE
+====================================

@@ -1,0 +1,17 @@
+====================================
+ CONDITION VARIABLE WAITING TEST
+====================================
+
+Customer C0 requesting [3, 0, 0]
+Customer C0: Request GRANTED.
+
+Customer C1 requesting [1, 0, 0]
+Customer C1 is waiting for resources.
+Customer C0: Resources released.
+Customer C1: Request GRANTED.
+Customer C1: Resources released.
+
+====================================
+ WAITING TEST COMPLETED
+====================================
+Final Available: 3 3 2 

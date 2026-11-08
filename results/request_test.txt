@@ -1,0 +1,14 @@
+====================================
+ RESOURCE REQUEST AND RELEASE TEST
+====================================
+
+Initial Available: [3, 3, 2]
+Customer C1 requesting: [1, 0, 2]
+Request GRANTED.
+Available after request: 2 3 0 
+
+Customer C1 releasing: [1, 0, 2]
+Resources released successfully.
+Available after release: 3 3 2 
+
+Resource request and release test PASSED.

@@ -1,0 +1,15 @@
+====================================
+ INVALID REQUEST VALIDATION TEST
+====================================
+Test 1: Invalid customer ID - PASSED
+Test 2: Negative resource request - PASSED
+Test 3: Request exceeds Need - PASSED
+Test 4: Invalid release customer ID - PASSED
+Test 5: Negative resource release - PASSED
+Test 6: Release exceeds Allocation - PASSED
+
+Resource state integrity: PASSED
+
+====================================
+ALL INVALID REQUEST TESTS PASSED
+====================================
