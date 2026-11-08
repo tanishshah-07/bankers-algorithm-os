@@ -17,3 +17,5 @@
 *.swp
 /banker
 /test_wait
+/test_invalid
+/test_stress
