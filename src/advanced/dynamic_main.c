@@ -1,0 +1,250 @@
+#include "dynamic_banker.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define MAX_CUSTOMERS 50
+#define MAX_RESOURCES 20
+
+static int read_integer(const char *prompt, int *value)
+{
+    printf("%s", prompt);
+
+    if (scanf("%d", value) != 1)
+        return 0;
+
+    return 1;
+}
+
+static void print_menu(void)
+{
+    printf("\n========== RESOURCE MANAGEMENT ==========\n");
+    printf("1. Display system state\n");
+    printf("2. Request resources\n");
+    printf("3. Release resources\n");
+    printf("4. Check system safety\n");
+    printf("5. Exit\n");
+    printf("=========================================\n");
+}
+
+int main(void)
+{
+    int customer_count, resource_count;
+
+    printf("\n========================================\n");
+    printf(" ADVANCED RESOURCE MANAGEMENT SIMULATOR\n");
+    printf("========================================\n");
+
+    if (!read_integer("Enter number of customers: ",
+                      &customer_count) ||
+        !read_integer("Enter number of resource types: ",
+                      &resource_count)) {
+        printf("Invalid input.\n");
+        return 1;
+    }
+
+    if (customer_count < 1 || customer_count > MAX_CUSTOMERS ||
+        resource_count < 1 || resource_count > MAX_RESOURCES) {
+        printf("Customers must be 1-%d and resources 1-%d.\n",
+               MAX_CUSTOMERS, MAX_RESOURCES);
+        return 1;
+    }
+
+    DynamicBanker db;
+
+    if (db_init(&db, (size_t)customer_count,
+                (size_t)resource_count) != 0) {
+        printf("Failed to initialize resource manager.\n");
+        return 1;
+    }
+
+    int *values = calloc((size_t)resource_count, sizeof(int));
+
+    if (!values) {
+        db_destroy(&db);
+        return 1;
+    }
+
+    printf("\nEnter total instances of each resource:\n");
+
+    for (int j = 0; j < resource_count; j++) {
+        char prompt[80];
+        snprintf(prompt, sizeof(prompt), "R%d: ", j + 1);
+
+        if (!read_integer(prompt, &values[j]) || values[j] < 0) {
+            printf("Invalid resource quantity.\n");
+            free(values);
+            db_destroy(&db);
+            return 1;
+        }
+    }
+
+    db_set_total(&db, values);
+
+    printf("\nEnter maximum requirements:\n");
+
+    for (int i = 0; i < customer_count; i++) {
+        printf("Customer C%d:\n", i);
+
+        for (int j = 0; j < resource_count; j++) {
+            char prompt[80];
+            snprintf(prompt, sizeof(prompt), "  R%d: ", j + 1);
+
+            if (!read_integer(prompt, &values[j]) ||
+                values[j] < 0) {
+                printf("Invalid maximum requirement.\n");
+                free(values);
+                db_destroy(&db);
+                return 1;
+            }
+        }
+
+        db_set_maximum(&db, (size_t)i, values);
+    }
+
+    printf("\nEnter initial allocation:\n");
+
+    for (int i = 0; i < customer_count; i++) {
+        printf("Customer C%d:\n", i);
+
+        for (int j = 0; j < resource_count; j++) {
+            char prompt[80];
+            snprintf(prompt, sizeof(prompt), "  R%d: ", j + 1);
+
+            if (!read_integer(prompt, &values[j]) ||
+                values[j] < 0) {
+                printf("Invalid allocation.\n");
+                free(values);
+                db_destroy(&db);
+                return 1;
+            }
+        }
+
+        if (!db_set_allocation(&db, (size_t)i, values)) {
+            printf("Allocation cannot exceed maximum requirement.\n");
+            free(values);
+            db_destroy(&db);
+            return 1;
+        }
+    }
+
+    free(values);
+
+    if (!db_finalize_configuration(&db)) {
+        printf("Invalid configuration: allocated resources exceed totals.\n");
+        db_destroy(&db);
+        return 1;
+    }
+
+    printf("\nSystem configuration completed successfully.\n");
+
+    db_display(&db);
+
+    int choice;
+
+    while (1) {
+        print_menu();
+
+        if (!read_integer("Enter choice: ", &choice)) {
+            printf("Invalid input. Exiting.\n");
+            break;
+        }
+
+        if (choice == 5)
+            break;
+
+        if (choice == 1) {
+            db_display(&db);
+        }
+
+        else if (choice == 2 || choice == 3) {
+            int customer;
+
+            if (!read_integer("Enter customer ID: ", &customer) ||
+                customer < 0 || customer >= customer_count) {
+                printf("Invalid customer ID.\n");
+                continue;
+            }
+
+            values = calloc((size_t)resource_count, sizeof(int));
+
+            if (!values)
+                break;
+
+            printf("Enter resource quantities:\n");
+
+            int valid = 1;
+
+            for (int j = 0; j < resource_count; j++) {
+                char prompt[80];
+                snprintf(prompt, sizeof(prompt), "R%d: ", j + 1);
+
+                if (!read_integer(prompt, &values[j]) ||
+                    values[j] < 0) {
+                    valid = 0;
+                    break;
+                }
+            }
+
+            if (!valid) {
+                printf("Invalid resource quantities.\n");
+                free(values);
+                break;
+            }
+
+            if (choice == 2) {
+                int result = db_request(&db, (size_t)customer, values);
+
+                if (result == DB_GRANTED)
+                    printf("\nREQUEST GRANTED. System remains SAFE.\n");
+                else if (result == DB_UNAVAILABLE)
+                    printf("\nREQUEST WAITING: Resources unavailable.\n");
+                else if (result == DB_UNSAFE)
+                    printf("\nREQUEST DENIED: Would cause an unsafe state.\n");
+                else
+                    printf("\nINVALID REQUEST.\n");
+            } else {
+                if (db_release(&db, (size_t)customer, values))
+                    printf("\nResources released successfully.\n");
+                else
+                    printf("\nINVALID RELEASE.\n");
+            }
+
+            free(values);
+            db_display(&db);
+        }
+
+        else if (choice == 4) {
+            int *sequence = calloc((size_t)customer_count, sizeof(int));
+
+            if (!sequence)
+                break;
+
+            if (db_is_safe(&db, sequence)) {
+                printf("\nSystem is SAFE.\nSequence: ");
+
+                for (int i = 0; i < customer_count; i++) {
+                    printf("C%d", sequence[i]);
+
+                    if (i + 1 < customer_count)
+                        printf(" -> ");
+                }
+
+                printf("\n");
+            } else {
+                printf("\nSystem is UNSAFE.\n");
+            }
+
+            free(sequence);
+        }
+
+        else {
+            printf("Invalid menu choice.\n");
+        }
+    }
+
+    db_destroy(&db);
+
+    printf("\nSimulator closed successfully.\n");
+    return 0;
+}
