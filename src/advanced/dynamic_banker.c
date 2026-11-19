@@ -1,4 +1,5 @@
 #include "dynamic_banker.h"
+#include "deadlock_detector.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +8,7 @@
 
 #define IDX(row, col, width) ((row) * (width) + (col))
 
+/* Must be called while the mutex is locked. */
 static int safe_unlocked(DynamicBanker *db, int sequence[])
 {
     size_t n = db->customers;
@@ -41,15 +43,19 @@ static int safe_unlocked(DynamicBanker *db, int sequence[])
                 }
             }
 
-            if (can_finish) {
-                for (size_t j = 0; j < m; j++) {
-                    work[j] += db->allocation[IDX(i, j, m)];
-                }
+            if (!can_finish)
+                continue;
 
-                finish[i] = 1;
-                sequence[completed++] = (int)i;
-                found = 1;
-            }
+            for (size_t j = 0; j < m; j++)
+                work[j] += db->allocation[IDX(i, j, m)];
+
+            finish[i] = 1;
+
+            if (sequence)
+                sequence[completed] = (int)i;
+
+            completed++;
+            found = 1;
         }
 
         if (!found) {
@@ -64,15 +70,87 @@ static int safe_unlocked(DynamicBanker *db, int sequence[])
     return 1;
 }
 
+/* Check whether a customer has an outstanding request. */
+static int has_pending_request(const DynamicBanker *db, size_t customer)
+{
+    for (size_t j = 0; j < db->resources; j++) {
+        if (db->request[IDX(customer, j, db->resources)] != 0)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* Try to grant one request while the mutex is locked. */
+static int try_grant_unlocked(
+    DynamicBanker *db,
+    size_t customer,
+    const int request[]
+)
+{
+    size_t m = db->resources;
+
+    for (size_t j = 0; j < m; j++) {
+        if (request[j] > db->available[j])
+            return 0;
+    }
+
+    /* Tentatively allocate resources. */
+    for (size_t j = 0; j < m; j++) {
+        db->available[j] -= request[j];
+        db->allocation[IDX(customer, j, m)] += request[j];
+        db->need[IDX(customer, j, m)] -= request[j];
+    }
+
+    /* Grant only if the resulting state is safe. */
+    int safe = safe_unlocked(db, NULL);
+
+    if (!safe) {
+        for (size_t j = 0; j < m; j++) {
+            db->available[j] += request[j];
+            db->allocation[IDX(customer, j, m)] -= request[j];
+            db->need[IDX(customer, j, m)] += request[j];
+        }
+
+        return 0;
+    }
+
+    return 1;
+}
+
+/* Retry waiting requests in customer-ID order. */
+static void retry_pending_unlocked(DynamicBanker *db)
+{
+    size_t m = db->resources;
+
+    for (size_t i = 0; i < db->customers; i++) {
+        if (!has_pending_request(db, i))
+            continue;
+
+        int *pending = &db->request[IDX(i, 0, m)];
+
+        if (try_grant_unlocked(db, i, pending)) {
+            memset(pending, 0, m * sizeof(int));
+
+            printf("\nPENDING REQUEST GRANTED: C%zu\n", i);
+        }
+    }
+}
+
 int db_init(DynamicBanker *db, size_t customers, size_t resources)
 {
     if (!db || customers == 0 || resources == 0 ||
         customers > SIZE_MAX / resources)
         return -1;
 
-    memset(db, 0, sizeof(*db));
-
     size_t cells = customers * resources;
+
+    if (resources > SIZE_MAX / sizeof(int) ||
+        cells > SIZE_MAX / sizeof(int) ||
+        customers > SIZE_MAX / sizeof(int))
+        return -1;
+
+    memset(db, 0, sizeof(*db));
 
     db->customers = customers;
     db->resources = resources;
@@ -82,9 +160,10 @@ int db_init(DynamicBanker *db, size_t customers, size_t resources)
     db->maximum = calloc(cells, sizeof(int));
     db->allocation = calloc(cells, sizeof(int));
     db->need = calloc(cells, sizeof(int));
+    db->request = calloc(cells, sizeof(int));
 
     if (!db->total || !db->available || !db->maximum ||
-        !db->allocation || !db->need) {
+        !db->allocation || !db->need || !db->request) {
         db_destroy(db);
         return -1;
     }
@@ -113,6 +192,7 @@ void db_destroy(DynamicBanker *db)
     free(db->maximum);
     free(db->allocation);
     free(db->need);
+    free(db->request);
 
     memset(db, 0, sizeof(*db));
 }
@@ -177,9 +257,8 @@ int db_finalize_configuration(DynamicBanker *db)
     for (size_t j = 0; j < m; j++) {
         long long allocated = 0;
 
-        for (size_t i = 0; i < n; i++) {
+        for (size_t i = 0; i < n; i++)
             allocated += db->allocation[IDX(i, j, m)];
-        }
 
         if (allocated > db->total[j])
             return 0;
@@ -215,12 +294,20 @@ int db_is_safe(DynamicBanker *db, int sequence[])
 int db_request(DynamicBanker *db, size_t customer,
                const int request[])
 {
-    if (!db || !request || customer >= db->customers)
+    if (!db || !request || customer >= db->customers ||
+        !db->mutex_initialized)
         return DB_INVALID;
 
     pthread_mutex_lock(&db->mutex);
 
     size_t m = db->resources;
+
+    if (has_pending_request(db, customer)) {
+        pthread_mutex_unlock(&db->mutex);
+        return DB_INVALID;
+    }
+
+    int unavailable = 0;
 
     for (size_t j = 0; j < m; j++) {
         if (request[j] < 0 ||
@@ -229,53 +316,30 @@ int db_request(DynamicBanker *db, size_t customer,
             return DB_INVALID;
         }
 
-        if (request[j] > db->available[j]) {
-            pthread_mutex_unlock(&db->mutex);
-            return DB_UNAVAILABLE;
-        }
+        if (request[j] > db->available[j])
+            unavailable = 1;
     }
 
-    for (size_t j = 0; j < m; j++) {
-        db->available[j] -= request[j];
-        db->allocation[IDX(customer, j, m)] += request[j];
-        db->need[IDX(customer, j, m)] -= request[j];
-    }
-
-    int *sequence = malloc(db->customers * sizeof(int));
-
-    if (!sequence) {
-        for (size_t j = 0; j < m; j++) {
-            db->available[j] += request[j];
-            db->allocation[IDX(customer, j, m)] -= request[j];
-            db->need[IDX(customer, j, m)] += request[j];
-        }
+    if (unavailable) {
+        memcpy(&db->request[IDX(customer, 0, m)],
+               request, m * sizeof(int));
 
         pthread_mutex_unlock(&db->mutex);
-        return DB_INVALID;
+        return DB_UNAVAILABLE;
     }
 
-    int safe = safe_unlocked(db, sequence);
-    free(sequence);
-
-    if (!safe) {
-        for (size_t j = 0; j < m; j++) {
-            db->available[j] += request[j];
-            db->allocation[IDX(customer, j, m)] -= request[j];
-            db->need[IDX(customer, j, m)] += request[j];
-        }
-
-        pthread_mutex_unlock(&db->mutex);
-        return DB_UNSAFE;
-    }
+    int granted = try_grant_unlocked(db, customer, request);
 
     pthread_mutex_unlock(&db->mutex);
-    return DB_GRANTED;
+
+    return granted ? DB_GRANTED : DB_UNSAFE;
 }
 
 int db_release(DynamicBanker *db, size_t customer,
                const int release[])
 {
-    if (!db || !release || customer >= db->customers)
+    if (!db || !release || customer >= db->customers ||
+        !db->mutex_initialized)
         return 0;
 
     pthread_mutex_lock(&db->mutex);
@@ -296,13 +360,37 @@ int db_release(DynamicBanker *db, size_t customer,
         db->need[IDX(customer, j, m)] += release[j];
     }
 
+    printf("\nChecking pending requests...\n");
+    retry_pending_unlocked(db);
+
     pthread_mutex_unlock(&db->mutex);
     return 1;
 }
 
+int db_detect_deadlocks(DynamicBanker *db, int deadlocked[])
+{
+    if (!db || !deadlocked || !db->mutex_initialized)
+        return -1;
+
+    pthread_mutex_lock(&db->mutex);
+
+    int result = dd_detect(
+        db->customers,
+        db->resources,
+        db->available,
+        db->allocation,
+        db->request,
+        deadlocked
+    );
+
+    pthread_mutex_unlock(&db->mutex);
+
+    return result;
+}
+
 void db_display(DynamicBanker *db)
 {
-    if (!db)
+    if (!db || !db->mutex_initialized)
         return;
 
     pthread_mutex_lock(&db->mutex);
@@ -316,7 +404,7 @@ void db_display(DynamicBanker *db)
     for (size_t j = 0; j < m; j++)
         printf("R%zu=%d  ", j + 1, db->available[j]);
 
-    printf("\n\nMaximum / Allocation / Need\n");
+    printf("\n\nMaximum / Allocation / Need / Request\n");
     printf("%-10s", "Customer");
 
     for (size_t j = 0; j < m; j++)
@@ -337,6 +425,10 @@ void db_display(DynamicBanker *db)
         for (size_t j = 0; j < m; j++)
             printf("%-7d", db->need[IDX(i, j, m)]);
 
+        printf("\n   REQUEST  ");
+        for (size_t j = 0; j < m; j++)
+            printf("%-7d", db->request[IDX(i, j, m)]);
+
         printf("\n");
     }
 
@@ -347,6 +439,7 @@ void db_display(DynamicBanker *db)
 
         for (size_t i = 0; i < n; i++) {
             printf("C%d", sequence[i]);
+
             if (i + 1 < n)
                 printf(" -> ");
         }

@@ -23,7 +23,8 @@ static void print_menu(void)
     printf("2. Request resources\n");
     printf("3. Release resources\n");
     printf("4. Check system safety\n");
-    printf("5. Exit\n");
+    printf("5. Detect deadlocks\n");
+    printf("6. Exit\n");
     printf("=========================================\n");
 }
 
@@ -35,10 +36,8 @@ int main(void)
     printf(" ADVANCED RESOURCE MANAGEMENT SIMULATOR\n");
     printf("========================================\n");
 
-    if (!read_integer("Enter number of customers: ",
-                      &customer_count) ||
-        !read_integer("Enter number of resource types: ",
-                      &resource_count)) {
+    if (!read_integer("Enter number of customers: ", &customer_count) ||
+        !read_integer("Enter number of resource types: ", &resource_count)) {
         printf("Invalid input.\n");
         return 1;
     }
@@ -79,7 +78,12 @@ int main(void)
         }
     }
 
-    db_set_total(&db, values);
+    if (!db_set_total(&db, values)) {
+        printf("Invalid total resources.\n");
+        free(values);
+        db_destroy(&db);
+        return 1;
+    }
 
     printf("\nEnter maximum requirements:\n");
 
@@ -90,8 +94,7 @@ int main(void)
             char prompt[80];
             snprintf(prompt, sizeof(prompt), "  R%d: ", j + 1);
 
-            if (!read_integer(prompt, &values[j]) ||
-                values[j] < 0) {
+            if (!read_integer(prompt, &values[j]) || values[j] < 0) {
                 printf("Invalid maximum requirement.\n");
                 free(values);
                 db_destroy(&db);
@@ -99,7 +102,12 @@ int main(void)
             }
         }
 
-        db_set_maximum(&db, (size_t)i, values);
+        if (!db_set_maximum(&db, (size_t)i, values)) {
+            printf("Invalid maximum requirement.\n");
+            free(values);
+            db_destroy(&db);
+            return 1;
+        }
     }
 
     printf("\nEnter initial allocation:\n");
@@ -111,8 +119,7 @@ int main(void)
             char prompt[80];
             snprintf(prompt, sizeof(prompt), "  R%d: ", j + 1);
 
-            if (!read_integer(prompt, &values[j]) ||
-                values[j] < 0) {
+            if (!read_integer(prompt, &values[j]) || values[j] < 0) {
                 printf("Invalid allocation.\n");
                 free(values);
                 db_destroy(&db);
@@ -150,17 +157,16 @@ int main(void)
             break;
         }
 
-        if (choice == 5)
+        if (choice == 6)
             break;
 
         if (choice == 1) {
             db_display(&db);
         }
-
         else if (choice == 2 || choice == 3) {
             int customer;
 
-            if (!read_integer("Enter customer ID: ", &customer) ||
+            if (!read_integer("Enter customer ID (0-based): ", &customer) ||
                 customer < 0 || customer >= customer_count) {
                 printf("Invalid customer ID.\n");
                 continue;
@@ -168,8 +174,10 @@ int main(void)
 
             values = calloc((size_t)resource_count, sizeof(int));
 
-            if (!values)
+            if (!values) {
+                printf("Memory allocation failed.\n");
                 break;
+            }
 
             printf("Enter resource quantities:\n");
 
@@ -179,8 +187,7 @@ int main(void)
                 char prompt[80];
                 snprintf(prompt, sizeof(prompt), "R%d: ", j + 1);
 
-                if (!read_integer(prompt, &values[j]) ||
-                    values[j] < 0) {
+                if (!read_integer(prompt, &values[j]) || values[j] < 0) {
                     valid = 0;
                     break;
                 }
@@ -198,12 +205,13 @@ int main(void)
                 if (result == DB_GRANTED)
                     printf("\nREQUEST GRANTED. System remains SAFE.\n");
                 else if (result == DB_UNAVAILABLE)
-                    printf("\nREQUEST WAITING: Resources unavailable.\n");
+                    printf("\nREQUEST WAITING: Saved until resources become available.\n");
                 else if (result == DB_UNSAFE)
                     printf("\nREQUEST DENIED: Would cause an unsafe state.\n");
                 else
-                    printf("\nINVALID REQUEST.\n");
-            } else {
+                    printf("\nINVALID REQUEST or customer already has a pending request.\n");
+            }
+            else {
                 if (db_release(&db, (size_t)customer, values))
                     printf("\nResources released successfully.\n");
                 else
@@ -213,12 +221,13 @@ int main(void)
             free(values);
             db_display(&db);
         }
-
         else if (choice == 4) {
             int *sequence = calloc((size_t)customer_count, sizeof(int));
 
-            if (!sequence)
+            if (!sequence) {
+                printf("Memory allocation failed.\n");
                 break;
+            }
 
             if (db_is_safe(&db, sequence)) {
                 printf("\nSystem is SAFE.\nSequence: ");
@@ -231,13 +240,52 @@ int main(void)
                 }
 
                 printf("\n");
-            } else {
+            }
+            else {
                 printf("\nSystem is UNSAFE.\n");
             }
 
             free(sequence);
         }
+        else if (choice == 5) {
+            int *deadlocked = calloc((size_t)customer_count, sizeof(int));
 
+            if (!deadlocked) {
+                printf("Memory allocation failed.\n");
+                break;
+            }
+
+            int count = db_detect_deadlocks(&db, deadlocked);
+
+            if (count < 0) {
+                printf("\nDeadlock detection failed due to invalid input or memory error.\n");
+            }
+            else if (count == 0) {
+                printf("\nNO DEADLOCK DETECTED.\n");
+                printf("All customers can finish or are not holding resources while waiting.\n");
+            }
+            else {
+                printf("\nDEADLOCK DETECTED!\n");
+                printf("Number of affected customers: %d\n", count);
+                printf("Affected customers: ");
+
+                int first = 1;
+
+                for (int i = 0; i < customer_count; i++) {
+                    if (deadlocked[i]) {
+                        if (!first)
+                            printf(", ");
+
+                        printf("C%d", i);
+                        first = 0;
+                    }
+                }
+
+                printf("\n");
+            }
+
+            free(deadlocked);
+        }
         else {
             printf("Invalid menu choice.\n");
         }
