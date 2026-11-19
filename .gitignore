@@ -41,3 +41,4 @@ Thumbs.db
 # Advanced simulator executables
 advanced_simulator
 test_dynamic
+test_database
